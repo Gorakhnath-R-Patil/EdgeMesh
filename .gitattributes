@@ -1,0 +1,11 @@
+# Normalize line endings to LF in the repository regardless of the
+# checkout platform, so gofmt and CI (Linux) see the same bytes a
+# Windows contributor edited.
+* text=auto eol=lf
+
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+Makefile text eol=lf

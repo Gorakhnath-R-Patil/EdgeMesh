@@ -1,0 +1,28 @@
+# Build artifacts
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Coverage
+*.out
+coverage.html
+
+# Go workspace / vendor
+/vendor/
+go.work
+go.work.sum
+
+# Local overrides (never commit real deployment config)
+*.local.yaml
+.env
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

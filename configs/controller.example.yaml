@@ -1,0 +1,20 @@
+# Example configuration for edgemesh-controller.
+#
+# Copy to a local path and pass it via `-config`, e.g.:
+#   edgemesh-controller -config configs/controller.example.yaml
+#
+# Any field left unset falls back to the binary's built-in default, and
+# any field can be overridden at runtime with an EDGEMESH_* environment
+# variable (see internal/config).
+
+node:
+  id: controller-1
+  zone: local
+  region: local
+
+logging:
+  level: info   # debug | info | warn | error
+  format: text  # text | json
+
+server:
+  listenAddress: 0.0.0.0:9090
