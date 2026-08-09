@@ -1,6 +1,7 @@
 MODULE      := github.com/Gorakhnath-R-Patil/EdgeMesh
 BIN_DIR     := bin
 BINARIES    := edgemesh-proxy edgemesh-controller edgemesh-cli
+GOBIN       := $(shell go env GOPATH)/bin
 
 VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -11,7 +12,8 @@ LDFLAGS := -X '$(MODULE)/internal/buildinfo.Version=$(VERSION)' \
            -X '$(MODULE)/internal/buildinfo.Date=$(DATE)'
 
 .PHONY: all build test race vet fmt fmt-check lint clean \
-        run-proxy run-controller run-cli $(BINARIES)
+        run-proxy run-controller run-cli $(BINARIES) \
+        proto-tools proto-lint proto-gen
 
 all: fmt-check vet test build
 
@@ -61,3 +63,18 @@ run-controller:
 ## run-cli: run edgemesh-cli from source (pass args via ARGS="...")
 run-cli:
 	go run ./cmd/edgemesh-cli $(ARGS)
+
+## proto-tools: install the buf/protoc-gen-go toolchain (one-time, into $GOPATH/bin)
+proto-tools:
+	go install github.com/bufbuild/buf/cmd/buf@latest
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
+## proto-lint: lint proto/ (requires `make proto-tools`)
+proto-lint:
+	PATH="$(GOBIN):$$PATH" buf lint
+
+## proto-gen: regenerate gen/go/ from proto/ (requires `make proto-tools`).
+## Generated code is committed, so this only needs to be run when a
+## .proto file changes.
+proto-gen:
+	PATH="$(GOBIN):$$PATH" buf generate

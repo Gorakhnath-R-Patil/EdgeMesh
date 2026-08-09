@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+// Locality identifies where a process is running. It is carried by
+// Endpoint as plain runtime identity today; locality-aware routing
+// (later development phase) uses it to prefer same-zone/same-region
+// destinations.
+message Locality {
+  string region = 1;
+  string zone = 2;
+  string node = 3;
+}

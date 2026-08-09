@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+// HealthState is the health status of a single endpoint. The health
+// engine (introduced in later development phases) is responsible for
+// computing and transitioning this value from active and passive
+// signals; this message only defines the set of valid states.
+//
+//   HEALTHY -> DEGRADED -> UNHEALTHY -> RECOVERING -> HEALTHY
+enum HealthState {
+  // No health information is available yet, e.g. a newly registered
+  // endpoint that has not been checked.
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_HEALTHY = 1;
+  HEALTH_STATE_DEGRADED = 2;
+  HEALTH_STATE_UNHEALTHY = 3;
+  HEALTH_STATE_RECOVERING = 4;
+}

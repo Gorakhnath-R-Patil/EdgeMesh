@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+// RouteMatch selects which requests a Route applies to. An unset
+// path_specifier and empty headers match every request.
+message RouteMatch {
+  oneof path_specifier {
+    string path_exact = 1;
+    string path_prefix = 2;
+  }
+  map<string, string> headers = 3;
+}
+
+// WeightedDestination is one weighted target of a Route, e.g. a
+// specific service subset/version during a traffic shift
+// (100% v1 -> 90/10 -> 50/50 -> 0/100).
+message WeightedDestination {
+  string service_name = 1;
+  // Subset selects endpoints by version/label, e.g. "v1". Empty means
+  // "all endpoints of the service".
+  string subset = 2;
+  // Weight is relative to the other destinations on the same Route,
+  // not an absolute percentage.
+  uint32 weight = 3;
+}
+
+// Route maps matching requests to one or more weighted destinations
+// and, optionally, a named Policy.
+message Route {
+  string name = 1;
+  RouteMatch match = 2;
+  repeated WeightedDestination destinations = 3;
+  // policy_name references a Policy by name. Empty means "use the
+  // routing engine's default policy".
+  string policy_name = 4;
+}

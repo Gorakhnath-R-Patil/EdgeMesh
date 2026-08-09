@@ -14,6 +14,16 @@ make build
 make test
 ```
 
+Generated protobuf code (`gen/go/`) is checked in, so the steps above
+never require `protoc`/`buf`. Only install them if you're changing a
+`.proto` file under `proto/`:
+
+```sh
+make proto-tools   # one-time: installs buf + protoc-gen-go
+make proto-lint
+make proto-gen     # regenerates gen/go/ — commit the result
+```
+
 ## Before opening a pull request
 
 Run the full local quality gate:
@@ -44,6 +54,8 @@ A pull request that fails any of these will not be merged as-is.
   (or `fmt.Errorf("...: %w", err)`), and prefer the sentinel errors in
   `internal/errors` so callers can branch with `errors.Is`.
 * No global mutable state. No unbounded queues or uncontrolled retries.
+* Never hand-edit anything under `gen/`. Change the `.proto` source
+  under `proto/` and run `make proto-gen`.
 
 ## Testing
 

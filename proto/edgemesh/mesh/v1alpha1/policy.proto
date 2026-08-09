@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+import "google/protobuf/duration.proto";
+
+// LoadBalancingStrategy selects how a Route distributes traffic across
+// the endpoints of its destination(s). Each strategy is implemented in
+// its own later development phase; this enum only names the contract.
+enum LoadBalancingStrategy {
+  // Use the routing engine's built-in default (round robin).
+  LOAD_BALANCING_STRATEGY_UNSPECIFIED = 0;
+  LOAD_BALANCING_STRATEGY_ROUND_ROBIN = 1;
+  LOAD_BALANCING_STRATEGY_WEIGHTED = 2;
+  LOAD_BALANCING_STRATEGY_LEAST_CONNECTIONS = 3;
+  LOAD_BALANCING_STRATEGY_LATENCY_AWARE = 4;
+  LOAD_BALANCING_STRATEGY_ADAPTIVE = 5;
+}
+
+// HealthCheckPolicy configures active health checking for the
+// endpoints a Policy applies to.
+message HealthCheckPolicy {
+  // Consecutive failures before an endpoint is marked unhealthy.
+  uint32 failure_threshold = 1;
+  // Consecutive successes before a recovering endpoint is marked
+  // healthy again.
+  uint32 success_threshold = 2;
+  google.protobuf.Duration interval = 3;
+  google.protobuf.Duration timeout = 4;
+}
+
+// CircuitBreakerPolicy configures the CLOSED/OPEN/HALF_OPEN circuit
+// breaker for the endpoints a Policy applies to.
+message CircuitBreakerPolicy {
+  uint32 consecutive_failure_threshold = 1;
+  google.protobuf.Duration recovery_timeout = 2;
+  // Maximum number of probe requests allowed while HALF_OPEN.
+  uint32 half_open_max_requests = 3;
+}
+
+// RetryPolicy bounds retry behavior to prevent retry storms. Absence of
+// explicit bounds is never treated as "unlimited" by the retry engine.
+message RetryPolicy {
+  uint32 max_attempts = 1;
+  google.protobuf.Duration per_try_timeout = 2;
+  google.protobuf.Duration backoff_base = 3;
+  google.protobuf.Duration backoff_max = 4;
+  // HTTP status codes that are safe to retry, e.g. 502, 503, 504.
+  repeated uint32 retryable_status_codes = 5;
+}
+
+// TimeoutPolicy configures request-level and idle-connection timeouts.
+message TimeoutPolicy {
+  google.protobuf.Duration request = 1;
+  google.protobuf.Duration idle = 2;
+}
+
+// Policy is a named, reusable bundle of traffic-management settings
+// that a Route can reference by name. Defining this shape now lets the
+// configuration model (YAML/gRPC distribution) stabilize early, even
+// though the subsystems that enforce each setting are built
+// incrementally in later development phases.
+message Policy {
+  string name = 1;
+  LoadBalancingStrategy load_balancing = 2;
+  HealthCheckPolicy health_check = 3;
+  CircuitBreakerPolicy circuit_breaker = 4;
+  RetryPolicy retry = 5;
+  TimeoutPolicy timeout = 6;
+}

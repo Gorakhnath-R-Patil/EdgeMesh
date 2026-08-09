@@ -8,4 +8,9 @@
 *.sum text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+*.proto text eol=lf
 Makefile text eol=lf
+
+# Generated protobuf code: collapse in PR diffs and exclude from
+# language/diff stats, but never treat it as binary (still gofmt-checked).
+gen/**/*.pb.go linguist-generated=true text eol=lf

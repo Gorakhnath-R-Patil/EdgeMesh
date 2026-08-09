@@ -101,6 +101,12 @@ internal/
   logging/               structured logging (log/slog) setup
   errors/                shared error-handling conventions
   cli/                   subcommand dispatch used by edgemesh-cli
+  mesh/                  validation for the core data models below
+proto/                   protobuf contracts for the core data models
+  edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
+                            RoutingDecision
+gen/go/                  generated Go code from proto/ (checked in;
+                          regenerate with `make proto-gen`, never edit by hand)
 configs/                 example YAML configuration for each binary
 ```
 
@@ -145,6 +151,29 @@ server:
   listenAddress: 0.0.0.0:8080
 ```
 
+## Core data models
+
+EdgeMesh's domain model is defined as protobuf in
+[proto/edgemesh/mesh/v1alpha1](proto/edgemesh/mesh/v1alpha1) and generated
+into `gen/go/` (checked in — a normal `go build`/`go test` never needs
+`protoc`/`buf` installed; they're only needed when a `.proto` file
+changes, via `make proto-gen`):
+
+| Message           | Represents                                                          |
+| ------------------ | -------------------------------------------------------------------- |
+| `Service`          | A logical destination clients address by name                       |
+| `Endpoint`         | One network-addressable backend instance of a Service                |
+| `Route`            | A request-match to weighted-destination(s) mapping                   |
+| `Policy`           | A named, reusable bundle of load-balancing/health/circuit-breaker/retry/timeout settings |
+| `HealthState`      | An endpoint's health: `HEALTHY`, `DEGRADED`, `UNHEALTHY`, `RECOVERING` |
+| `RoutingDecision`  | An explainable record of why a specific endpoint was selected        |
+
+[internal/mesh](internal/mesh) validates these messages (required
+fields, name format, port ranges, positive durations, bounded retry
+attempts, ...); the subsystems that act on them — discovery, health
+checking, circuit breaking, retries, adaptive routing — are built up in
+later development phases.
+
 ## Current status
 
 EdgeMesh is being built up one deliberate layer at a time, starting from
@@ -181,7 +210,9 @@ Target capability set:
 What exists today: the repository foundation — Go module layout, the
 three binaries (`edgemesh-proxy`, `edgemesh-controller`, `edgemesh-cli`)
 with configuration loading, structured logging, graceful shutdown, and a
-CI pipeline. No routing, discovery, or proxying logic has landed yet.
+CI pipeline — plus the core data models (`Service`, `Endpoint`, `Route`,
+`Policy`, `HealthState`, `RoutingDecision`) as validated protobuf
+contracts. No routing, discovery, or proxying logic has landed yet.
 
 ## Contributing
 

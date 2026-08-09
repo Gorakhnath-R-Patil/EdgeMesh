@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "edgemesh/mesh/v1alpha1/policy.proto";
+
+// RoutingDecision records why a specific endpoint was selected for a
+// single request. It exists purely for observability/explainability —
+// every routing decision the engine makes (a later development phase)
+// should be representable as one of these — and is never itself an
+// input to routing.
+message RoutingDecision {
+  string request_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string service_name = 3;
+  string selected_endpoint_id = 4;
+  // Other endpoints that were considered and not selected.
+  repeated string candidate_endpoint_ids = 5;
+  LoadBalancingStrategy strategy = 6;
+  // Reason is a short, human-readable explanation, e.g. "lowest
+  // adaptive score" or "only healthy endpoint".
+  string reason = 7;
+  // Score is the strategy-specific score behind the decision, when the
+  // strategy produces one (e.g. adaptive). 0 for strategies that don't.
+  double score = 8;
+}

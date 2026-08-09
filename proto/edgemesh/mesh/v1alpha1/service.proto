@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+// Protocol is the application protocol spoken on a ServicePort. It
+// informs the data plane whether to apply L4 or L7 handling.
+enum Protocol {
+  PROTOCOL_UNSPECIFIED = 0;
+  PROTOCOL_HTTP = 1;
+  PROTOCOL_HTTP2 = 2;
+  PROTOCOL_GRPC = 3;
+  PROTOCOL_TCP = 4;
+}
+
+// ServicePort names and describes one network port a Service exposes.
+message ServicePort {
+  // Name distinguishes this port from others on the same Service (e.g.
+  // "http", "grpc"). Required when a Service exposes more than one port.
+  string name = 1;
+  uint32 port = 2;
+  Protocol protocol = 3;
+}
+
+// Service is a logical destination that clients address by name. It
+// carries identity and port metadata only — endpoint membership is
+// maintained separately by the service registry (a later development
+// phase), not embedded here, so registry updates never require
+// rewriting the Service itself.
+message Service {
+  string name = 1;
+  // Namespace scopes the service name, mirroring Kubernetes namespaces.
+  // Defaults to "default" when unset.
+  string namespace = 2;
+  repeated ServicePort ports = 3;
+  map<string, string> labels = 4;
+}

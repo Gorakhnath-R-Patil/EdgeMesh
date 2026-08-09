@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package edgemesh.mesh.v1alpha1;
+
+import "edgemesh/mesh/v1alpha1/health.proto";
+import "edgemesh/mesh/v1alpha1/locality.proto";
+
+// Endpoint is a single network-addressable backend instance of a
+// Service, e.g. one pod or process behind "payment-service".
+message Endpoint {
+  // ID uniquely identifies this endpoint within its Service, e.g.
+  // "payment-3".
+  string id = 1;
+  string service_name = 2;
+  string address = 3;
+  uint32 port = 4;
+  // Weight is the relative traffic weight used by weighted load
+  // balancing. 0 means "use the routing engine's default weight".
+  uint32 weight = 5;
+  Locality locality = 6;
+  HealthState health = 7;
+  map<string, string> metadata = 8;
+}
