@@ -18,3 +18,14 @@ logging:
 
 server:
   listenAddress: 0.0.0.0:8080
+
+# upstream.address is required — edgemesh-proxy forwards every request
+# to this single backend. Multi-endpoint selection (service registry +
+# routing strategies) arrives in a later development phase.
+upstream:
+  address: http://127.0.0.1:9000
+  dialTimeout: 5s
+  requestTimeout: 15s
+  idleConnTimeout: 90s
+  maxIdleConns: 100
+  maxIdleConnsPerHost: 10

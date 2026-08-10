@@ -1,8 +1,14 @@
 // Package config defines EdgeMesh's process-level configuration model:
 // the settings every binary needs regardless of role (node identity,
-// logging, and its own listen address). Domain configuration for the
-// service mesh itself — services, routes, policies — is introduced in
-// later development phases and will live in its own package.
+// logging, and its own listen address), plus sections only some
+// binaries use (e.g. Upstream, read only by edgemesh-proxy). Sharing
+// one schema across binaries mirrors mature proxies' bootstrap config
+// (e.g. Envoy's single bootstrap.yaml covers node identity, listeners,
+// and clusters even though not every deployment populates every
+// section). Domain configuration for the service mesh itself —
+// services, routes, policies — is defined separately as protobuf (see
+// internal/mesh) and distributed at runtime rather than loaded from a
+// local file.
 //
 // Configuration is loaded from an optional YAML file layered on top of
 // caller-supplied defaults, then overridden by environment variables,
@@ -14,8 +20,10 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	edgeerrors "github.com/Gorakhnath-R-Patil/EdgeMesh/internal/errors"
 	"gopkg.in/yaml.v3"
@@ -54,11 +62,37 @@ type ServerConfig struct {
 	ListenAddress string `yaml:"listenAddress"`
 }
 
+// UpstreamConfig configures edgemesh-proxy's connection to the single
+// backend it forwards every request to. It is read only by
+// edgemesh-proxy; other binaries leave it unset. Multi-endpoint
+// selection arrives once the service registry and routing strategies
+// exist (later development phases) — until then, Address names one
+// backend directly.
+type UpstreamConfig struct {
+	// Address is the backend's base URL, e.g. "http://127.0.0.1:9000".
+	Address string `yaml:"address"`
+
+	// DialTimeout bounds establishing a new TCP connection to the
+	// backend.
+	DialTimeout Duration `yaml:"dialTimeout"`
+	// RequestTimeout bounds an entire proxied request: connect, write,
+	// and read the response.
+	RequestTimeout Duration `yaml:"requestTimeout"`
+	// IdleConnTimeout bounds how long a pooled, idle backend connection
+	// is kept open for reuse.
+	IdleConnTimeout Duration `yaml:"idleConnTimeout"`
+	// MaxIdleConns and MaxIdleConnsPerHost bound the pooled connection
+	// cache size.
+	MaxIdleConns        int `yaml:"maxIdleConns"`
+	MaxIdleConnsPerHost int `yaml:"maxIdleConnsPerHost"`
+}
+
 // Config is the top-level configuration shared by every EdgeMesh binary.
 type Config struct {
-	Node    NodeConfig    `yaml:"node"`
-	Logging LoggingConfig `yaml:"logging"`
-	Server  ServerConfig  `yaml:"server"`
+	Node     NodeConfig     `yaml:"node"`
+	Logging  LoggingConfig  `yaml:"logging"`
+	Server   ServerConfig   `yaml:"server"`
+	Upstream UpstreamConfig `yaml:"upstream"`
 }
 
 // envPrefix namespaces every EdgeMesh environment variable override.
@@ -113,6 +147,22 @@ func applyDefaults(cfg *Config) {
 			cfg.Node.ID = "unknown-node"
 		}
 	}
+
+	if cfg.Upstream.DialTimeout.Duration <= 0 {
+		cfg.Upstream.DialTimeout = Duration{Duration: 5 * time.Second}
+	}
+	if cfg.Upstream.RequestTimeout.Duration <= 0 {
+		cfg.Upstream.RequestTimeout = Duration{Duration: 15 * time.Second}
+	}
+	if cfg.Upstream.IdleConnTimeout.Duration <= 0 {
+		cfg.Upstream.IdleConnTimeout = Duration{Duration: 90 * time.Second}
+	}
+	if cfg.Upstream.MaxIdleConns <= 0 {
+		cfg.Upstream.MaxIdleConns = 100
+	}
+	if cfg.Upstream.MaxIdleConnsPerHost <= 0 {
+		cfg.Upstream.MaxIdleConnsPerHost = 10
+	}
 }
 
 // applyEnvOverrides layers environment variables on top of cfg. Only a
@@ -137,6 +187,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v, ok := lookupEnv("LISTEN_ADDRESS"); ok {
 		cfg.Server.ListenAddress = v
+	}
+	if v, ok := lookupEnv("UPSTREAM_ADDRESS"); ok {
+		cfg.Upstream.Address = v
 	}
 }
 
@@ -175,8 +228,51 @@ func (c Config) Validate() error {
 		}
 	}
 
+	if errs2 := c.Upstream.validate(); len(errs2) > 0 {
+		errs = append(errs, errs2...)
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("%w: %s", edgeerrors.ErrInvalidConfig, strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validate checks UpstreamConfig in isolation. Address is optional at
+// this layer — binaries that don't proxy (edgemesh-controller) simply
+// leave it unset — but edgemesh-proxy must reject startup if it is
+// empty; that binary-specific requirement is enforced by the caller,
+// not here.
+func (u UpstreamConfig) validate() []string {
+	var errs []string
+
+	if u.Address != "" {
+		parsed, err := url.Parse(u.Address)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Sprintf("upstream.address: %v", err))
+		case parsed.Scheme != "http" && parsed.Scheme != "https":
+			errs = append(errs, fmt.Sprintf("upstream.address: scheme must be http or https, got %q", parsed.Scheme))
+		case parsed.Host == "":
+			errs = append(errs, "upstream.address: must include a host")
+		}
+	}
+
+	if u.DialTimeout.Duration < 0 {
+		errs = append(errs, "upstream.dialTimeout: must not be negative")
+	}
+	if u.RequestTimeout.Duration < 0 {
+		errs = append(errs, "upstream.requestTimeout: must not be negative")
+	}
+	if u.IdleConnTimeout.Duration < 0 {
+		errs = append(errs, "upstream.idleConnTimeout: must not be negative")
+	}
+	if u.MaxIdleConns < 0 {
+		errs = append(errs, "upstream.maxIdleConns: must not be negative")
+	}
+	if u.MaxIdleConnsPerHost < 0 {
+		errs = append(errs, "upstream.maxIdleConnsPerHost: must not be negative")
+	}
+
+	return errs
 }

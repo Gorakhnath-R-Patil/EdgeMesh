@@ -102,6 +102,7 @@ internal/
   errors/                shared error-handling conventions
   cli/                   subcommand dispatch used by edgemesh-cli
   mesh/                  validation for the core data models below
+  proxy/                 the data-plane HTTP forwarding handler
 proto/                   protobuf contracts for the core data models
   edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
                             RoutingDecision
@@ -149,7 +150,31 @@ logging:
 
 server:
   listenAddress: 0.0.0.0:8080
+
+# edgemesh-proxy only: required, the single backend it forwards to.
+upstream:
+  address: http://127.0.0.1:9000
+  dialTimeout: 5s
+  requestTimeout: 15s
 ```
+
+## Running the proxy
+
+`edgemesh-proxy` forwards every request it receives to the one backend
+named by `upstream.address` — connection pooling, a request timeout, and
+structured per-request logging, but no endpoint selection yet (that
+needs the service registry and routing engine, built up in later
+development phases):
+
+```sh
+EDGEMESH_UPSTREAM_ADDRESS=http://127.0.0.1:9000 make run-proxy
+
+curl http://127.0.0.1:8080/anything   # forwarded to the backend above
+```
+
+A backend that's down or times out gets translated into `502 Bad
+Gateway` / `504 Gateway Timeout` respectively, both logged with the
+underlying error.
 
 ## Core data models
 
@@ -208,11 +233,14 @@ Target capability set:
 ```
 
 What exists today: the repository foundation — Go module layout, the
-three binaries (`edgemesh-proxy`, `edgemesh-controller`, `edgemesh-cli`)
-with configuration loading, structured logging, graceful shutdown, and a
-CI pipeline — plus the core data models (`Service`, `Endpoint`, `Route`,
-`Policy`, `HealthState`, `RoutingDecision`) as validated protobuf
-contracts. No routing, discovery, or proxying logic has landed yet.
+three binaries with configuration loading, structured logging, graceful
+shutdown, and a CI pipeline; the core data models (`Service`, `Endpoint`,
+`Route`, `Policy`, `HealthState`, `RoutingDecision`) as validated
+protobuf contracts; and a working `edgemesh-proxy` that forwards every
+request to one statically configured backend, with connection pooling,
+a request timeout, and structured per-request logging. No endpoint
+selection, discovery, or intelligent routing yet — `edgemesh-proxy`
+only knows about the single backend named in its config.
 
 ## Contributing
 

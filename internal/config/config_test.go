@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	edgeerrors "github.com/Gorakhnath-R-Patil/EdgeMesh/internal/errors"
 
@@ -153,5 +154,130 @@ func TestValidateAcceptsWellFormedConfig(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func baseValidConfig() config.Config {
+	return config.Config{
+		Node:    config.NodeConfig{ID: "n1"},
+		Logging: config.LoggingConfig{Level: config.LevelInfo, Format: config.FormatText},
+	}
+}
+
+func TestValidateAcceptsEmptyUpstream(t *testing.T) {
+	// edgemesh-controller never sets Upstream; the schema must not
+	// penalize binaries that don't use it.
+	if err := baseValidConfig().Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for empty upstream", err)
+	}
+}
+
+func TestValidateAcceptsWellFormedUpstream(t *testing.T) {
+	cfg := baseValidConfig()
+	cfg.Upstream = config.UpstreamConfig{Address: "http://127.0.0.1:9000"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidateRejectsUpstreamAddressWithoutScheme(t *testing.T) {
+	cfg := baseValidConfig()
+	cfg.Upstream = config.UpstreamConfig{Address: "127.0.0.1:9000"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error for schemeless upstream address")
+	}
+}
+
+func TestValidateRejectsUpstreamAddressWithBadScheme(t *testing.T) {
+	cfg := baseValidConfig()
+	cfg.Upstream = config.UpstreamConfig{Address: "ftp://127.0.0.1:9000"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error for non-http(s) scheme")
+	}
+}
+
+func TestValidateRejectsUpstreamAddressWithoutHost(t *testing.T) {
+	cfg := baseValidConfig()
+	cfg.Upstream = config.UpstreamConfig{Address: "http:///path"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error for hostless upstream address")
+	}
+}
+
+func TestValidateRejectsNegativeUpstreamTimeout(t *testing.T) {
+	cfg := baseValidConfig()
+	cfg.Upstream = config.UpstreamConfig{
+		Address:     "http://127.0.0.1:9000",
+		DialTimeout: config.Duration{Duration: -1 * time.Second},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error for negative dial timeout")
+	}
+}
+
+func TestLoadAppliesUpstreamDefaults(t *testing.T) {
+	cfg, err := config.Load("", config.Config{
+		Upstream: config.UpstreamConfig{Address: "http://127.0.0.1:9000"},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Upstream.DialTimeout.Duration != 5*time.Second {
+		t.Errorf("Upstream.DialTimeout = %v, want 5s", cfg.Upstream.DialTimeout.Duration)
+	}
+	if cfg.Upstream.RequestTimeout.Duration != 15*time.Second {
+		t.Errorf("Upstream.RequestTimeout = %v, want 15s", cfg.Upstream.RequestTimeout.Duration)
+	}
+	if cfg.Upstream.IdleConnTimeout.Duration != 90*time.Second {
+		t.Errorf("Upstream.IdleConnTimeout = %v, want 90s", cfg.Upstream.IdleConnTimeout.Duration)
+	}
+	if cfg.Upstream.MaxIdleConns != 100 {
+		t.Errorf("Upstream.MaxIdleConns = %d, want 100", cfg.Upstream.MaxIdleConns)
+	}
+	if cfg.Upstream.MaxIdleConnsPerHost != 10 {
+		t.Errorf("Upstream.MaxIdleConnsPerHost = %d, want 10", cfg.Upstream.MaxIdleConnsPerHost)
+	}
+}
+
+func TestLoadUpstreamAddressEnvOverride(t *testing.T) {
+	t.Setenv("EDGEMESH_UPSTREAM_ADDRESS", "http://10.0.0.9:8081")
+
+	cfg, err := config.Load("", config.Config{})
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if cfg.Upstream.Address != "http://10.0.0.9:8081" {
+		t.Errorf("Upstream.Address = %q, want env override", cfg.Upstream.Address)
+	}
+}
+
+func TestLoadUpstreamFileOverridesDefaultTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proxy.yaml")
+	yaml := `
+upstream:
+  address: http://127.0.0.1:9000
+  dialTimeout: 2s
+  requestTimeout: 30s
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := config.Load(path, config.Config{})
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if cfg.Upstream.DialTimeout.Duration != 2*time.Second {
+		t.Errorf("Upstream.DialTimeout = %v, want 2s", cfg.Upstream.DialTimeout.Duration)
+	}
+	if cfg.Upstream.RequestTimeout.Duration != 30*time.Second {
+		t.Errorf("Upstream.RequestTimeout = %v, want 30s", cfg.Upstream.RequestTimeout.Duration)
+	}
+	// IdleConnTimeout wasn't set in the file, so it still falls back to
+	// the built-in default.
+	if cfg.Upstream.IdleConnTimeout.Duration != 90*time.Second {
+		t.Errorf("Upstream.IdleConnTimeout = %v, want 90s default", cfg.Upstream.IdleConnTimeout.Duration)
 	}
 }
