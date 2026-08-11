@@ -103,6 +103,7 @@ internal/
   cli/                   subcommand dispatch used by edgemesh-cli
   mesh/                  validation for the core data models below
   proxy/                 the data-plane HTTP forwarding handler
+  registry/               in-memory service registry (service -> endpoint list)
 proto/                   protobuf contracts for the core data models
   edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
                             RoutingDecision
@@ -199,6 +200,23 @@ attempts, ...); the subsystems that act on them — discovery, health
 checking, circuit breaking, retries, adaptive routing — are built up in
 later development phases.
 
+## Service registry
+
+[internal/registry](internal/registry) is the in-memory "service ->
+endpoint list" store shown in the architecture diagram above:
+`RegisterService`/`DeregisterService` (deregistering cascades to that
+service's endpoints), `RegisterEndpoint`/`UpdateEndpoint`/
+`DeregisterEndpoint`, and `Lookup`. A Service must be registered before
+endpoints can be registered under it, so `ListServices` always reflects
+real declarations rather than names inferred from endpoint traffic.
+Safe for concurrent use — every stored/returned message is a defensive
+copy, so callers can never mutate registry state through a pointer.
+
+Not wired into `edgemesh-proxy` yet — that lands with the routing
+strategies (later development phases) that pick one endpoint from a
+`Lookup` result. Kubernetes-backed discovery (informers/watch) replaces
+manual registration once that integration exists.
+
 ## Current status
 
 EdgeMesh is being built up one deliberate layer at a time, starting from
@@ -236,11 +254,13 @@ What exists today: the repository foundation — Go module layout, the
 three binaries with configuration loading, structured logging, graceful
 shutdown, and a CI pipeline; the core data models (`Service`, `Endpoint`,
 `Route`, `Policy`, `HealthState`, `RoutingDecision`) as validated
-protobuf contracts; and a working `edgemesh-proxy` that forwards every
+protobuf contracts; a working `edgemesh-proxy` that forwards every
 request to one statically configured backend, with connection pooling,
-a request timeout, and structured per-request logging. No endpoint
-selection, discovery, or intelligent routing yet — `edgemesh-proxy`
-only knows about the single backend named in its config.
+a request timeout, and structured per-request logging; and an in-memory
+service registry. The registry and the proxy aren't connected yet —
+`edgemesh-proxy` still only knows about the single backend named in its
+config — that wiring, plus endpoint selection, arrives with the routing
+strategies in later development phases.
 
 ## Contributing
 
