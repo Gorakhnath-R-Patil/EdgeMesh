@@ -104,6 +104,7 @@ internal/
   mesh/                  validation for the core data models below
   proxy/                 the data-plane HTTP forwarding handler
   registry/               in-memory service registry (service -> endpoint list)
+  lb/                     load-balancing strategies (round robin, ...)
 proto/                   protobuf contracts for the core data models
   edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
                             RoutingDecision
@@ -217,6 +218,24 @@ strategies (later development phases) that pick one endpoint from a
 `Lookup` result. Kubernetes-backed discovery (informers/watch) replaces
 manual registration once that integration exists.
 
+## Load balancing
+
+[internal/lb](internal/lb) picks one endpoint from a candidate set —
+deliberately independent of routing policy (*which* destination a
+request matches) and of health/circuit-breaker state (*which*
+candidates are even eligible), both later development phases. The
+`Balancer` interface is the extension point section 11's roadmap needs
+(`RoundRobin`, `Weighted`, `LeastConnections`, `LatencyAware`,
+`Adaptive`); today only `RoundRobin` exists — a lock-free, atomic-
+counter rotation (`A, B, C, A, B, C, ...`) that indexes into whatever
+candidate list it's given on each call, so it naturally tolerates the
+registry's endpoint list changing between requests without needing to
+track individual endpoint identity across calls.
+
+Not wired into `edgemesh-proxy` yet — the proxy still forwards to one
+statically configured backend (Day 3); connecting registry lookup ->
+load balancing -> forwarding is a later development phase.
+
 ## Current status
 
 EdgeMesh is being built up one deliberate layer at a time, starting from
@@ -257,10 +276,11 @@ shutdown, and a CI pipeline; the core data models (`Service`, `Endpoint`,
 protobuf contracts; a working `edgemesh-proxy` that forwards every
 request to one statically configured backend, with connection pooling,
 a request timeout, and structured per-request logging; and an in-memory
-service registry. The registry and the proxy aren't connected yet —
-`edgemesh-proxy` still only knows about the single backend named in its
-config — that wiring, plus endpoint selection, arrives with the routing
-strategies in later development phases.
+service registry; and the first load-balancing strategy (round robin).
+None of these are connected to each other yet — `edgemesh-proxy` still
+only knows about the single backend named in its config. Wiring
+registry lookup through a Balancer into the proxy's forwarding path is
+a later development phase.
 
 ## Contributing
 
