@@ -224,13 +224,23 @@ manual registration once that integration exists.
 deliberately independent of routing policy (*which* destination a
 request matches) and of health/circuit-breaker state (*which*
 candidates are even eligible), both later development phases. The
-`Balancer` interface is the extension point section 11's roadmap needs
-(`RoundRobin`, `Weighted`, `LeastConnections`, `LatencyAware`,
-`Adaptive`); today only `RoundRobin` exists — a lock-free, atomic-
-counter rotation (`A, B, C, A, B, C, ...`) that indexes into whatever
-candidate list it's given on each call, so it naturally tolerates the
-registry's endpoint list changing between requests without needing to
-track individual endpoint identity across calls.
+`Balancer` interface is the extension point for the load-balancing
+strategies planned overall (round robin, weighted, least-connections,
+latency-aware, adaptive); two exist today:
+
+- **`RoundRobin`** — a lock-free, atomic-counter rotation
+  (`A, B, C, A, B, C, ...`) that indexes into whatever candidate list
+  it's given on each call, so it naturally tolerates the registry's
+  endpoint list changing between requests without needing to track
+  individual endpoint identity across calls.
+- **`Weighted`** — random selection in proportion to each endpoint's
+  relative `Weight` (e.g. `v1=90, v2=10` sends ~90%/~10% of traffic to
+  each, converging over many requests, not exactly per request); an
+  endpoint with `Weight` unset (0) gets the routing engine's default
+  share (1 — a neutral unit, since weights are relative, not absolute
+  percentages). Verified statistically in
+  [weighted_test.go](internal/lb/weighted_test.go), which documents the
+  standard-deviation math behind its tolerance.
 
 Not wired into `edgemesh-proxy` yet — the proxy still forwards to one
 statically configured backend (Day 3); connecting registry lookup ->
@@ -276,11 +286,11 @@ shutdown, and a CI pipeline; the core data models (`Service`, `Endpoint`,
 protobuf contracts; a working `edgemesh-proxy` that forwards every
 request to one statically configured backend, with connection pooling,
 a request timeout, and structured per-request logging; and an in-memory
-service registry; and the first load-balancing strategy (round robin).
-None of these are connected to each other yet — `edgemesh-proxy` still
-only knows about the single backend named in its config. Wiring
-registry lookup through a Balancer into the proxy's forwarding path is
-a later development phase.
+service registry; and two load-balancing strategies (round robin,
+weighted). None of these are connected to each other yet —
+`edgemesh-proxy` still only knows about the single backend named in its
+config. Wiring registry lookup through a Balancer into the proxy's
+forwarding path is a later development phase.
 
 ## Contributing
 
