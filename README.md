@@ -105,6 +105,7 @@ internal/
   proxy/                 the data-plane HTTP forwarding handler
   registry/               in-memory service registry (service -> endpoint list)
   lb/                     load-balancing strategies (round robin, ...)
+  health/                 active health checking (HEALTHY/UNHEALTHY, recovery)
 proto/                   protobuf contracts for the core data models
   edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
                             RoutingDecision
@@ -246,6 +247,41 @@ Not wired into `edgemesh-proxy` yet — the proxy still forwards to one
 statically configured backend (Day 3); connecting registry lookup ->
 load balancing -> forwarding is a later development phase.
 
+## Health checking
+
+[internal/health](internal/health) actively probes every endpoint in
+the registry on a schedule and writes `HEALTHY`/`UNHEALTHY` transitions
+back to it:
+
+- **`Checker`** — pluggable probe interface (`HTTPChecker` GETs a
+  configurable path, e.g. `/healthz`, and treats any 2xx as healthy);
+  `CheckerFunc` adapts a plain function for tests or simple cases.
+- **`Monitor`** — checks every endpoint of every registered service on
+  an interval, applying `FailureThreshold`/`SuccessThreshold`
+  consecutive-result hysteresis (from the `HealthCheckPolicy` message
+  defined back in Day 2) before flipping a state, so one slow or flaky
+  probe doesn't flap an endpoint. `CheckOnce` runs a single synchronous
+  pass (what the tests drive, deterministically); `Run` calls it on a
+  timer until its context is canceled, the same shutdown pattern used
+  by `edgemesh-proxy`.
+- **`FilterHealthy`** — the concrete "remove unhealthy endpoints from
+  normal routing" mechanism: excludes only `UNHEALTHY` endpoints from a
+  candidate list, ready to sit between a registry `Lookup` and a
+  `Balancer` once they're wired together.
+
+Only the two-state `HEALTHY`/`UNHEALTHY` model is implemented, driven
+solely by active probes, per this phase's scope — `DEGRADED` and
+`RECOVERING`, and passive (request-outcome-driven) signals, are later
+development phases and are never produced here. One `Monitor` also
+applies one policy to every endpoint it checks; resolving a different
+policy per service/route is a Policy Engine concern, also later.
+
+Not wired into a binary yet (no scheduler owns a `Monitor.Run` loop) or
+into the proxy's forwarding path — both are later development phases,
+following the same "build the subsystem, prove it with tests, wire it
+up once there's something real to wire it into" approach as the
+registry and load-balancing packages.
+
 ## Current status
 
 EdgeMesh is being built up one deliberate layer at a time, starting from
@@ -286,11 +322,13 @@ shutdown, and a CI pipeline; the core data models (`Service`, `Endpoint`,
 protobuf contracts; a working `edgemesh-proxy` that forwards every
 request to one statically configured backend, with connection pooling,
 a request timeout, and structured per-request logging; and an in-memory
-service registry; and two load-balancing strategies (round robin,
-weighted). None of these are connected to each other yet —
+service registry; two load-balancing strategies (round robin,
+weighted); and active health checking (`HEALTHY`/`UNHEALTHY` with
+recovery detection). None of these are connected to each other yet —
 `edgemesh-proxy` still only knows about the single backend named in its
-config. Wiring registry lookup through a Balancer into the proxy's
-forwarding path is a later development phase.
+config. Wiring registry lookup -> health filtering -> load balancing ->
+forwarding, with something actually running the health `Monitor`, is a
+later development phase.
 
 ## Contributing
 
