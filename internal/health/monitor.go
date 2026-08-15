@@ -6,16 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/Gorakhnath-R-Patil/EdgeMesh/internal/registry"
 
 	meshv1alpha1 "github.com/Gorakhnath-R-Patil/EdgeMesh/gen/go/edgemesh/mesh/v1alpha1"
 )
 
 // Built-in defaults, applied to any field left zero-valued in the
-// HealthCheckPolicy passed to NewMonitor. A nil policy gets every
-// default.
+// HealthCheckPolicy passed to NewMonitor or NewPassiveTracker. A nil
+// policy gets every default.
 const (
 	defaultInterval         = 10 * time.Second
 	defaultTimeout          = 2 * time.Second
@@ -40,26 +38,18 @@ const defaultMaxConcurrentChecks = 50
 // checks. Resolving a different policy per service or per route is a
 // Policy Engine concern (a later development phase); today's scope is
 // the mechanism, not per-destination policy selection.
+//
+// See PassiveTracker for the complementary, request-outcome-driven
+// signal: the two are independent observers of the same registry, each
+// with their own hysteresis, not a single merged state machine (that
+// unification is a later development phase — see the circuit breaker).
 type Monitor struct {
 	registry *registry.Registry
 	checker  Checker
-	logger   *slog.Logger
+	tracker  *stateTracker
 
-	interval         time.Duration
-	timeout          time.Duration
-	failureThreshold uint32
-	successThreshold uint32
-
-	mu     sync.Mutex
-	counts map[string]*consecutiveCounts
-}
-
-// consecutiveCounts tracks one endpoint's current streak. Exactly one
-// of the two fields is non-zero at a time: a success resets
-// failures to 0 and vice versa.
-type consecutiveCounts struct {
-	failures  uint32
-	successes uint32
+	interval time.Duration
+	timeout  time.Duration
 }
 
 // NewMonitor builds a Monitor that checks every endpoint in reg using
@@ -68,7 +58,7 @@ type consecutiveCounts struct {
 // per-check timeout, 3 consecutive failures to eject, 2 consecutive
 // successes to recover). logger must not be nil.
 func NewMonitor(reg *registry.Registry, checker Checker, policy *meshv1alpha1.HealthCheckPolicy, logger *slog.Logger) *Monitor {
-	interval, timeout, failureThreshold, successThreshold := defaultInterval, defaultTimeout, uint32(defaultFailureThreshold), uint32(defaultSuccessThreshold)
+	interval, timeout := defaultInterval, defaultTimeout
 	if policy != nil {
 		if d := policy.GetInterval().AsDuration(); d > 0 {
 			interval = d
@@ -76,23 +66,15 @@ func NewMonitor(reg *registry.Registry, checker Checker, policy *meshv1alpha1.He
 		if d := policy.GetTimeout().AsDuration(); d > 0 {
 			timeout = d
 		}
-		if t := policy.GetFailureThreshold(); t > 0 {
-			failureThreshold = t
-		}
-		if t := policy.GetSuccessThreshold(); t > 0 {
-			successThreshold = t
-		}
 	}
+	failureThreshold, successThreshold := thresholdsWithDefaults(policy)
 
 	return &Monitor{
-		registry:         reg,
-		checker:          checker,
-		logger:           logger,
-		interval:         interval,
-		timeout:          timeout,
-		failureThreshold: failureThreshold,
-		successThreshold: successThreshold,
-		counts:           make(map[string]*consecutiveCounts),
+		registry: reg,
+		checker:  checker,
+		tracker:  newStateTracker(reg, logger, "active", failureThreshold, successThreshold),
+		interval: interval,
+		timeout:  timeout,
 	}
 }
 
@@ -158,65 +140,13 @@ func (m *Monitor) CheckOnce(ctx context.Context) {
 	wg.Wait()
 }
 
-// checkEndpoint probes one endpoint, updates its consecutive
-// failure/success streak, and — if the streak just crossed the
-// configured threshold — writes the resulting state transition to the
-// registry.
+// checkEndpoint probes one endpoint and hands the result to the shared
+// tracker, which applies the consecutive-streak hysteresis and writes
+// any resulting state transition to the registry.
 func (m *Monitor) checkEndpoint(ctx context.Context, ep *meshv1alpha1.Endpoint) {
 	checkCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
 	err := m.checker.Check(checkCtx, ep)
-
-	key := ep.GetServiceName() + "/" + ep.GetId()
-
-	m.mu.Lock()
-	c, ok := m.counts[key]
-	if !ok {
-		c = &consecutiveCounts{}
-		m.counts[key] = c
-	}
-
-	var newState meshv1alpha1.HealthState
-	var transition bool
-	if err == nil {
-		c.failures = 0
-		c.successes++
-		if ep.GetHealth() != meshv1alpha1.HealthState_HEALTH_STATE_HEALTHY && c.successes >= m.successThreshold {
-			newState, transition = meshv1alpha1.HealthState_HEALTH_STATE_HEALTHY, true
-		}
-	} else {
-		c.successes = 0
-		c.failures++
-		if ep.GetHealth() != meshv1alpha1.HealthState_HEALTH_STATE_UNHEALTHY && c.failures >= m.failureThreshold {
-			newState, transition = meshv1alpha1.HealthState_HEALTH_STATE_UNHEALTHY, true
-		}
-	}
-	m.mu.Unlock()
-
-	if !transition {
-		return
-	}
-
-	updated := proto.Clone(ep).(*meshv1alpha1.Endpoint)
-	updated.Health = newState
-	if updateErr := m.registry.UpdateEndpoint(updated); updateErr != nil {
-		// The endpoint or its service was deregistered concurrently;
-		// nothing more to do.
-		m.logger.Warn("health: could not apply state transition, endpoint no longer registered",
-			"service", ep.GetServiceName(), "endpoint", ep.GetId(), "error", updateErr)
-		return
-	}
-
-	attrs := []any{
-		"service", ep.GetServiceName(),
-		"endpoint", ep.GetId(),
-		"from", ep.GetHealth().String(),
-		"to", newState.String(),
-	}
-	if newState == meshv1alpha1.HealthState_HEALTH_STATE_UNHEALTHY {
-		m.logger.Warn("health: endpoint marked unhealthy", append(attrs, "reason", err.Error())...)
-	} else {
-		m.logger.Info("health: endpoint recovered", attrs...)
-	}
+	m.tracker.record(ep, err)
 }
