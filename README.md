@@ -106,6 +106,7 @@ internal/
   registry/               in-memory service registry (service -> endpoint list)
   lb/                     load-balancing strategies (round robin, ...)
   health/                 active + passive health checking (HEALTHY/UNHEALTHY)
+  circuitbreaker/         CLOSED/OPEN/HALF_OPEN circuit breaker
 proto/                   protobuf contracts for the core data models
   edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
                             RoutingDecision
@@ -293,6 +294,39 @@ phases, following the same "build the subsystem, prove it with tests,
 wire it up once there's something real to wire it into" approach as the
 registry and load-balancing packages.
 
+## Circuit breaker
+
+[internal/circuitbreaker](internal/circuitbreaker) implements the
+`CLOSED -> OPEN -> HALF_OPEN` state machine that stops sending calls to
+a destination that's failing consistently, then cautiously probes it to
+find out when it's safe to resume — a `Breaker` guards one destination
+(the same per-destination convention as `lb.RoundRobin`):
+
+- **`CLOSED`** — calls proceed; `ConsecutiveFailureThreshold` failures
+  in a row trips to `OPEN` (a success resets the streak).
+- **`OPEN`** — every call is rejected (`Allow()` returns `false`, fail
+  fast) until `RecoveryTimeout` elapses, evaluated lazily on the next
+  `Allow()` call rather than by a background timer.
+- **`HALF_OPEN`** — up to `HalfOpenMaxRequests` trial calls are admitted
+  concurrently; that same count is how many consecutive trial successes
+  are required to fully close (`CircuitBreakerPolicy`, from Day 2, has
+  one field for this, not two). A single failed trial reopens
+  immediately, discarding the round's successes so far — recovery has
+  to look completely clean.
+
+Reuses `CircuitBreakerPolicy` (defined back in Day 2) for its three
+knobs, with defaults (5 failures, 30s recovery, 1 trial) when a field —
+or the whole policy — is unset. Deliberately a distinct mechanism from
+[internal/health](internal/health): health state describes what the
+health engine *believes* about an endpoint for routing eligibility; a
+breaker protects the *caller* from a known-bad destination in the
+moment, independent of that belief. They are not unified into one state
+machine here.
+
+Not wired into `edgemesh-proxy` yet — no per-endpoint `Breaker`
+instances exist until there's a request path that selects endpoints to
+guard, a later development phase.
+
 ## Current status
 
 EdgeMesh is being built up one deliberate layer at a time, starting from
@@ -334,11 +368,12 @@ protobuf contracts; a working `edgemesh-proxy` that forwards every
 request to one statically configured backend, with connection pooling,
 a request timeout, and structured per-request logging; and an in-memory
 service registry; two load-balancing strategies (round robin,
-weighted); and health checking, both active (`Monitor`, with recovery
-detection) and passive (`PassiveTracker`, from real request outcomes).
-None of these are connected to each other yet — `edgemesh-proxy` still
-only knows about the single backend named in its config. Wiring
-registry lookup -> health filtering -> load balancing -> forwarding ->
+weighted); health checking, both active (`Monitor`, with recovery
+detection) and passive (`PassiveTracker`, from real request outcomes);
+and a `CLOSED`/`OPEN`/`HALF_OPEN` circuit breaker. None of these are
+connected to each other yet — `edgemesh-proxy` still only knows about
+the single backend named in its config. Wiring registry lookup ->
+health filtering -> load balancing -> circuit breaking -> forwarding ->
 passive observation, with something actually running the health
 `Monitor`, is a later development phase.
 
