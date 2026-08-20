@@ -47,6 +47,12 @@ message RetryPolicy {
   google.protobuf.Duration backoff_max = 4;
   // HTTP status codes that are safe to retry, e.g. 502, 503, 504.
   repeated uint32 retryable_status_codes = 5;
+  // By default only idempotent methods (GET, HEAD, PUT, DELETE,
+  // OPTIONS, TRACE) are retried, since retrying a non-idempotent
+  // request (e.g. POST) can duplicate a side effect. Setting this true
+  // is an explicit, deliberate opt-in to retrying non-idempotent
+  // requests too.
+  bool retry_non_idempotent = 6;
 }
 
 // TimeoutPolicy configures request-level and idle-connection timeouts.

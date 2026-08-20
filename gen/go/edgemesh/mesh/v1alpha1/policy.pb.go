@@ -230,8 +230,14 @@ type RetryPolicy struct {
 	BackoffMax    *durationpb.Duration   `protobuf:"bytes,4,opt,name=backoff_max,json=backoffMax,proto3" json:"backoff_max,omitempty"`
 	// HTTP status codes that are safe to retry, e.g. 502, 503, 504.
 	RetryableStatusCodes []uint32 `protobuf:"varint,5,rep,packed,name=retryable_status_codes,json=retryableStatusCodes,proto3" json:"retryable_status_codes,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// By default only idempotent methods (GET, HEAD, PUT, DELETE,
+	// OPTIONS, TRACE) are retried, since retrying a non-idempotent
+	// request (e.g. POST) can duplicate a side effect. Setting this true
+	// is an explicit, deliberate opt-in to retrying non-idempotent
+	// requests too.
+	RetryNonIdempotent bool `protobuf:"varint,6,opt,name=retry_non_idempotent,json=retryNonIdempotent,proto3" json:"retry_non_idempotent,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *RetryPolicy) Reset() {
@@ -297,6 +303,13 @@ func (x *RetryPolicy) GetRetryableStatusCodes() []uint32 {
 		return x.RetryableStatusCodes
 	}
 	return nil
+}
+
+func (x *RetryPolicy) GetRetryNonIdempotent() bool {
+	if x != nil {
+		return x.RetryNonIdempotent
+	}
+	return false
 }
 
 // TimeoutPolicy configures request-level and idle-connection timeouts.
@@ -454,14 +467,15 @@ const file_edgemesh_mesh_v1alpha1_policy_proto_rawDesc = "" +
 	"\x14CircuitBreakerPolicy\x12B\n" +
 	"\x1dconsecutive_failure_threshold\x18\x01 \x01(\rR\x1bconsecutiveFailureThreshold\x12D\n" +
 	"\x10recovery_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x0frecoveryTimeout\x123\n" +
-	"\x16half_open_max_requests\x18\x03 \x01(\rR\x13halfOpenMaxRequests\"\xa3\x02\n" +
+	"\x16half_open_max_requests\x18\x03 \x01(\rR\x13halfOpenMaxRequests\"\xd5\x02\n" +
 	"\vRetryPolicy\x12!\n" +
 	"\fmax_attempts\x18\x01 \x01(\rR\vmaxAttempts\x12A\n" +
 	"\x0fper_try_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\rperTryTimeout\x12<\n" +
 	"\fbackoff_base\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vbackoffBase\x12:\n" +
 	"\vbackoff_max\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\n" +
 	"backoffMax\x124\n" +
-	"\x16retryable_status_codes\x18\x05 \x03(\rR\x14retryableStatusCodes\"s\n" +
+	"\x16retryable_status_codes\x18\x05 \x03(\rR\x14retryableStatusCodes\x120\n" +
+	"\x14retry_non_idempotent\x18\x06 \x01(\bR\x12retryNonIdempotent\"s\n" +
 	"\rTimeoutPolicy\x123\n" +
 	"\arequest\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\arequest\x12-\n" +
 	"\x04idle\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x04idle\"\x93\x03\n" +

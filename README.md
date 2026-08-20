@@ -107,6 +107,7 @@ internal/
   lb/                     load-balancing strategies (round robin, ...)
   health/                 active + passive health checking (HEALTHY/UNHEALTHY)
   circuitbreaker/         CLOSED/OPEN/HALF_OPEN circuit breaker
+  retry/                  retry decision-making (backoff, jitter, idempotency)
 proto/                   protobuf contracts for the core data models
   edgemesh/mesh/v1alpha1/  Service, Endpoint, Route, Policy, HealthState,
                             RoutingDecision
@@ -327,6 +328,38 @@ Not wired into `edgemesh-proxy` yet — no per-endpoint `Breaker`
 instances exist until there's a request path that selects endpoints to
 guard, a later development phase.
 
+## Retry engine
+
+[internal/retry](internal/retry) decides *whether* a failed attempt
+should be retried and *how long* to wait first — carefully bounded, so
+retries never amplify a struggling backend's problems into a storm.
+Deliberately stops at the decision: driving an actual retry loop
+against a real HTTP client, with a fresh endpoint per attempt, is a
+proxy-integration concern for a later development phase (once load
+balancing sits in the request path).
+
+- **`Policy.ShouldRetry(method, attempt, statusCode, err)`** refuses a
+  retry if any of: `attempt` already reached `MaxAttempts`; `method`
+  isn't idempotent (GET/HEAD/PUT/DELETE/OPTIONS/TRACE) and the policy
+  doesn't set `RetryNonIdempotent` — added to `RetryPolicy` this phase,
+  an explicit, deliberate opt-in, since retrying a POST can duplicate a
+  side effect; or neither the status code nor the error is classified
+  retryable (`IsRetryableError` excludes `context.Canceled` — the
+  client gave up, not a reason to retry — the same judgment call
+  `internal/health`'s classifier makes).
+- **`Policy.Backoff(attempt)`** computes **full-jitter** exponential
+  backoff — a uniformly random duration in
+  `[0, min(BackoffMax, BackoffBase * 2^(attempt-1))]` — the
+  AWS-documented technique for preventing a retry storm: if every
+  client backed off by the same computed delay, they'd all retry at
+  the same instant and recreate the load spike that caused the
+  failures. Doubling is computed iteratively so it saturates at
+  `BackoffMax` instead of overflowing for a large attempt count.
+
+Reuses `RetryPolicy` (Day 2) for its configuration, defaulting to 3
+attempts, a 50ms/2s backoff range, and the classic transient-gateway
+status set (502/503/504) when unset.
+
 ## Current status
 
 EdgeMesh is being built up one deliberate layer at a time, starting from
@@ -370,12 +403,13 @@ a request timeout, and structured per-request logging; and an in-memory
 service registry; two load-balancing strategies (round robin,
 weighted); health checking, both active (`Monitor`, with recovery
 detection) and passive (`PassiveTracker`, from real request outcomes);
-and a `CLOSED`/`OPEN`/`HALF_OPEN` circuit breaker. None of these are
-connected to each other yet — `edgemesh-proxy` still only knows about
-the single backend named in its config. Wiring registry lookup ->
-health filtering -> load balancing -> circuit breaking -> forwarding ->
-passive observation, with something actually running the health
-`Monitor`, is a later development phase.
+a `CLOSED`/`OPEN`/`HALF_OPEN` circuit breaker; and retry decision-making
+(bounded attempts, full-jitter backoff, idempotency-gated). None of
+these are connected to each other yet — `edgemesh-proxy` still only
+knows about the single backend named in its config. Wiring registry
+lookup -> health filtering -> load balancing -> circuit breaking ->
+forwarding -> passive observation -> retry-on-failure, with something
+actually running the health `Monitor`, is a later development phase.
 
 ## Contributing
 
