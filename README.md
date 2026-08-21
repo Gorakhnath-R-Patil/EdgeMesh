@@ -159,17 +159,18 @@ server:
 # edgemesh-proxy only: required, the single backend it forwards to.
 upstream:
   address: http://127.0.0.1:9000
-  dialTimeout: 5s
-  requestTimeout: 15s
+  dialTimeout: 5s               # connection timeout
+  responseHeaderTimeout: 10s    # upstream timeout
+  requestTimeout: 15s           # request timeout
 ```
 
 ## Running the proxy
 
 `edgemesh-proxy` forwards every request it receives to the one backend
-named by `upstream.address` — connection pooling, a request timeout, and
-structured per-request logging, but no endpoint selection yet (that
-needs the service registry and routing engine, built up in later
-development phases):
+named by `upstream.address` — connection pooling, three independent
+timeout phases (below), and structured per-request logging, but no
+endpoint selection yet (that needs the service registry and routing
+engine, built up in later development phases):
 
 ```sh
 EDGEMESH_UPSTREAM_ADDRESS=http://127.0.0.1:9000 make run-proxy
@@ -180,6 +181,34 @@ curl http://127.0.0.1:8080/anything   # forwarded to the backend above
 A backend that's down or times out gets translated into `502 Bad
 Gateway` / `504 Gateway Timeout` respectively, both logged with the
 underlying error.
+
+## Timeouts and deadlines
+
+Three independent timeout phases bound a proxied request, matching how
+real reverse proxies separate these concerns (Envoy, Nginx):
+
+| Phase | Config field | Bounds |
+| ----- | ------------ | ------ |
+| Connection timeout | `dialTimeout` | Establishing a new TCP connection to the backend |
+| Upstream timeout | `responseHeaderTimeout` | Waiting for the backend to *start* responding, once the request is sent |
+| Request timeout | `requestTimeout` | The entire exchange — connect, write, and read the full response |
+
+All three, plus context cancellation, are enforced through Go's
+`context` package rather than ad hoc timers, which gives two
+properties for free — and both are locked in by tests, not just
+assumed:
+
+- **A caller's own deadline is never silently extended.** `context.WithTimeout` always takes the *earlier* of a parent's existing deadline and the new one, so if an incoming request already carries a shorter deadline than `requestTimeout`, that shorter deadline wins.
+- **Cancellation propagates.** If the incoming request's context is canceled (e.g. the client disconnects), that cancellation reaches the in-flight backend call — the backend doesn't run to completion regardless.
+
+Fixed a related correctness gap while adding the upstream-timeout phase:
+classifying "was this a timeout" used to check specifically for
+`context.DeadlineExceeded`, which a dial timeout doesn't actually
+produce (`net.Dialer` maps it to its own `i/o timeout` error internally,
+same for `http.Transport`'s `ResponseHeaderTimeout`). Detection now
+checks the standard `net.Error`-style `Timeout() bool` method instead,
+which all three error shapes implement — so a dial timeout now
+correctly returns `504`, not `502`.
 
 ## Core data models
 
@@ -399,14 +428,16 @@ shutdown, and a CI pipeline; the core data models (`Service`, `Endpoint`,
 `Route`, `Policy`, `HealthState`, `RoutingDecision`) as validated
 protobuf contracts; a working `edgemesh-proxy` that forwards every
 request to one statically configured backend, with connection pooling,
-a request timeout, and structured per-request logging; and an in-memory
-service registry; two load-balancing strategies (round robin,
+three independently-bounded timeout phases with tested context
+propagation/cancellation, and structured per-request logging; an
+in-memory service registry; two load-balancing strategies (round robin,
 weighted); health checking, both active (`Monitor`, with recovery
 detection) and passive (`PassiveTracker`, from real request outcomes);
 a `CLOSED`/`OPEN`/`HALF_OPEN` circuit breaker; and retry decision-making
 (bounded attempts, full-jitter backoff, idempotency-gated). None of
-these are connected to each other yet — `edgemesh-proxy` still only
-knows about the single backend named in its config. Wiring registry
+these subsystems beyond the proxy's own timeout handling are connected
+to each other yet — `edgemesh-proxy` still only knows about the single
+backend named in its config. Wiring registry
 lookup -> health filtering -> load balancing -> circuit breaking ->
 forwarding -> passive observation -> retry-on-failure, with something
 actually running the health `Monitor`, is a later development phase.

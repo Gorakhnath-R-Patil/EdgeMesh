@@ -24,8 +24,11 @@ server:
 # routing strategies) arrives in a later development phase.
 upstream:
   address: http://127.0.0.1:9000
-  dialTimeout: 5s
-  requestTimeout: 15s
+  # Three independent timeout phases (see internal/proxy's package doc
+  # for how they compose):
+  dialTimeout: 5s              # connection timeout: establishing the TCP connection
+  responseHeaderTimeout: 10s    # upstream timeout: waiting for the backend to start responding
+  requestTimeout: 15s           # request timeout: the entire exchange, start to finish
   idleConnTimeout: 90s
   maxIdleConns: 100
   maxIdleConnsPerHost: 10

@@ -226,6 +226,9 @@ func TestLoadAppliesUpstreamDefaults(t *testing.T) {
 	if cfg.Upstream.DialTimeout.Duration != 5*time.Second {
 		t.Errorf("Upstream.DialTimeout = %v, want 5s", cfg.Upstream.DialTimeout.Duration)
 	}
+	if cfg.Upstream.ResponseHeaderTimeout.Duration != 10*time.Second {
+		t.Errorf("Upstream.ResponseHeaderTimeout = %v, want 10s", cfg.Upstream.ResponseHeaderTimeout.Duration)
+	}
 	if cfg.Upstream.RequestTimeout.Duration != 15*time.Second {
 		t.Errorf("Upstream.RequestTimeout = %v, want 15s", cfg.Upstream.RequestTimeout.Duration)
 	}
@@ -237,6 +240,17 @@ func TestLoadAppliesUpstreamDefaults(t *testing.T) {
 	}
 	if cfg.Upstream.MaxIdleConnsPerHost != 10 {
 		t.Errorf("Upstream.MaxIdleConnsPerHost = %d, want 10", cfg.Upstream.MaxIdleConnsPerHost)
+	}
+}
+
+func TestValidateRejectsNegativeResponseHeaderTimeout(t *testing.T) {
+	cfg := baseValidConfig()
+	cfg.Upstream = config.UpstreamConfig{
+		Address:               "http://127.0.0.1:9000",
+		ResponseHeaderTimeout: config.Duration{Duration: -1 * time.Second},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error for negative response header timeout")
 	}
 }
 
@@ -259,6 +273,7 @@ func TestLoadUpstreamFileOverridesDefaultTimeout(t *testing.T) {
 upstream:
   address: http://127.0.0.1:9000
   dialTimeout: 2s
+  responseHeaderTimeout: 8s
   requestTimeout: 30s
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
@@ -271,6 +286,9 @@ upstream:
 	}
 	if cfg.Upstream.DialTimeout.Duration != 2*time.Second {
 		t.Errorf("Upstream.DialTimeout = %v, want 2s", cfg.Upstream.DialTimeout.Duration)
+	}
+	if cfg.Upstream.ResponseHeaderTimeout.Duration != 8*time.Second {
+		t.Errorf("Upstream.ResponseHeaderTimeout = %v, want 8s", cfg.Upstream.ResponseHeaderTimeout.Duration)
 	}
 	if cfg.Upstream.RequestTimeout.Duration != 30*time.Second {
 		t.Errorf("Upstream.RequestTimeout = %v, want 30s", cfg.Upstream.RequestTimeout.Duration)

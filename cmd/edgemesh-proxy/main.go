@@ -84,12 +84,13 @@ func run(args []string) error {
 	}
 
 	handler := proxy.NewHandler(proxy.Config{
-		Upstream:            upstreamURL,
-		DialTimeout:         cfg.Upstream.DialTimeout.Duration,
-		RequestTimeout:      cfg.Upstream.RequestTimeout.Duration,
-		IdleConnTimeout:     cfg.Upstream.IdleConnTimeout.Duration,
-		MaxIdleConns:        cfg.Upstream.MaxIdleConns,
-		MaxIdleConnsPerHost: cfg.Upstream.MaxIdleConnsPerHost,
+		Upstream:              upstreamURL,
+		DialTimeout:           cfg.Upstream.DialTimeout.Duration,
+		ResponseHeaderTimeout: cfg.Upstream.ResponseHeaderTimeout.Duration,
+		RequestTimeout:        cfg.Upstream.RequestTimeout.Duration,
+		IdleConnTimeout:       cfg.Upstream.IdleConnTimeout.Duration,
+		MaxIdleConns:          cfg.Upstream.MaxIdleConns,
+		MaxIdleConnsPerHost:   cfg.Upstream.MaxIdleConnsPerHost,
 	}, logger)
 
 	srv := &http.Server{

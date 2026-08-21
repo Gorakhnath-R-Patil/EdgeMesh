@@ -72,9 +72,14 @@ type UpstreamConfig struct {
 	// Address is the backend's base URL, e.g. "http://127.0.0.1:9000".
 	Address string `yaml:"address"`
 
-	// DialTimeout bounds establishing a new TCP connection to the
-	// backend.
+	// DialTimeout ("connection timeout") bounds establishing a new TCP
+	// connection to the backend.
 	DialTimeout Duration `yaml:"dialTimeout"`
+	// ResponseHeaderTimeout ("upstream timeout") bounds waiting for the
+	// backend to start responding once the request has been sent,
+	// independently of DialTimeout (connecting) and RequestTimeout (the
+	// whole exchange).
+	ResponseHeaderTimeout Duration `yaml:"responseHeaderTimeout"`
 	// RequestTimeout bounds an entire proxied request: connect, write,
 	// and read the response.
 	RequestTimeout Duration `yaml:"requestTimeout"`
@@ -150,6 +155,9 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Upstream.DialTimeout.Duration <= 0 {
 		cfg.Upstream.DialTimeout = Duration{Duration: 5 * time.Second}
+	}
+	if cfg.Upstream.ResponseHeaderTimeout.Duration <= 0 {
+		cfg.Upstream.ResponseHeaderTimeout = Duration{Duration: 10 * time.Second}
 	}
 	if cfg.Upstream.RequestTimeout.Duration <= 0 {
 		cfg.Upstream.RequestTimeout = Duration{Duration: 15 * time.Second}
@@ -260,6 +268,9 @@ func (u UpstreamConfig) validate() []string {
 
 	if u.DialTimeout.Duration < 0 {
 		errs = append(errs, "upstream.dialTimeout: must not be negative")
+	}
+	if u.ResponseHeaderTimeout.Duration < 0 {
+		errs = append(errs, "upstream.responseHeaderTimeout: must not be negative")
 	}
 	if u.RequestTimeout.Duration < 0 {
 		errs = append(errs, "upstream.requestTimeout: must not be negative")
